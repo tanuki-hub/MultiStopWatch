@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Quad Stopwatch</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background-color: #121212;
+      color: #ffffff;
+      font-family: Arial, sans-serif;
+      user-select: none;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+    }
+
+    .stopwatch-container {
+      border: 1px solid #333;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 4vw;
+      transition: background-color 0.3s, color 0.3s;
+    }
+
+    .light-mode {
+      background-color: #ffffff !important;
+      color: #000000 !important;
+    }
+
+    .stopwatch {
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="stopwatch-container" id="sw0"><div class="stopwatch">00:00:00.000</div></div>
+  <div class="stopwatch-container" id="sw1"><div class="stopwatch">00:00:00.000</div></div>
+  <div class="stopwatch-container" id="sw2"><div class="stopwatch">00:00:00.000</div></div>
+  <div class="stopwatch-container" id="sw3"><div class="stopwatch">00:00:00.000</div></div>
+
+  <script>
+    class Stopwatch {
+      constructor(container) {
+        this.container = container;
+        this.display = container.querySelector(".stopwatch");
+        this.startTime = null;
+        this.elapsedMilliseconds = 0;
+        this.isRunning = false;
+        this.animationFrameId = null;
+        this.lastTenMinuteStep = -1;
+        this.swipeStartX = 0;
+        this.isSwipe = false;
+
+        this.bindEvents();
+        this.updateDisplay();
+      }
+
+      bindEvents() {
+        this.container.addEventListener("click", () => {
+          if (!this.isSwipe) this.toggle();
+        });
+
+        this.container.addEventListener("touchstart", e => this.startSwipe(e));
+        this.container.addEventListener("touchend", e => this.endSwipe(e));
+        this.container.addEventListener("mousedown", e => this.startSwipe(e));
+        this.container.addEventListener("mouseup", e => this.endSwipe(e));
+      }
+
+      startSwipe(event) {
+        this.isSwipe = false;
+        if (event.type === "touchstart") {
+          this.swipeStartX = event.touches[0].clientX;
+        } else {
+          this.swipeStartX = event.clientX;
+        }
+      }
+
+      endSwipe(event) {
+        let endX = (event.type === "touchend")
+          ? event.changedTouches[0].clientX
+          : event.clientX;
+        const diff = endX - this.swipeStartX;
+
+        if (Math.abs(diff) > 50) {
+          this.isSwipe = true;
+          this.reset();
+        }
+      }
+
+      updateDisplay() {
+        const totalSeconds = Math.floor(this.elapsedMilliseconds / 1000);
+        const milliseconds = Math.floor(this.elapsedMilliseconds % 1000);
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+
+        this.display.textContent = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(milliseconds).padStart(3, "0")}`;
+
+        if (this.isRunning) {
+          const step = Math.floor(totalSeconds / 600);
+          if (step > this.lastTenMinuteStep) {
+            this.lastTenMinuteStep = step;
+            this.container.classList.add("light-mode");
+          }
+        }
+      }
+
+      update() {
+        if (this.isRunning) {
+          const now = performance.now();
+          this.elapsedMilliseconds = now - this.startTime;
+          this.updateDisplay();
+          this.animationFrameId = requestAnimationFrame(() => this.update());
+        }
+      }
+
+      toggle() {
+        if (this.isRunning) {
+          cancelAnimationFrame(this.animationFrameId);
+          this.isRunning = false;
+          this.container.classList.remove("light-mode");
+        } else {
+          this.lastTenMinuteStep = Math.floor(this.elapsedMilliseconds / 600000);
+          this.startTime = performance.now() - this.elapsedMilliseconds;
+          this.isRunning = true;
+          this.update();
+        }
+      }
+
+      reset() {
+        cancelAnimationFrame(this.animationFrameId);
+        this.elapsedMilliseconds = 0;
+        this.startTime = null;
+        this.isRunning = false;
+        this.lastTenMinuteStep = -1;
+        this.container.classList.remove("light-mode");
+        this.updateDisplay();
+      }
+    }
+
+    const containers = Array.from(document.querySelectorAll(".stopwatch-container"));
+    containers.forEach(container => new Stopwatch(container));
+  </script>
+</body>
+</html>
