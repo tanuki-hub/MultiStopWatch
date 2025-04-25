@@ -14,142 +14,196 @@
     html, body {
       width: 100%;
       height: 100%;
-      background-color: #121212;
-      color: #ffffff;
       font-family: Arial, sans-serif;
-      user-select: none;
+      background-color: #121212;
+      color: #fff;
       display: grid;
       grid-template-columns: 1fr 1fr;
       grid-template-rows: 1fr 1fr;
     }
 
     .stopwatch-container {
-      border: 1px solid #333;
+      width: 100%;
+      height: 100%;
       display: flex;
       justify-content: center;
       align-items: center;
-      font-size: 4vw;
+      background-color: #121212;
       transition: background-color 0.3s, color 0.3s;
+      user-select: none;
+    }
+
+    .stopwatch {
+      text-align: center;
+      font-size: 6vw;
     }
 
     .light-mode {
       background-color: #ffffff !important;
       color: #000000 !important;
     }
-
-    .stopwatch {
-      text-align: center;
-    }
   </style>
 </head>
 <body>
-  <div class="stopwatch-container" id="sw0"><div class="stopwatch">00:00:00.000</div></div>
-  <div class="stopwatch-container" id="sw1"><div class="stopwatch">00:00:00.000</div></div>
-  <div class="stopwatch-container" id="sw2"><div class="stopwatch">00:00:00.000</div></div>
-  <div class="stopwatch-container" id="sw3"><div class="stopwatch">00:00:00.000</div></div>
+  <!-- 四分割ストップウォッチ -->
+  <div class="stopwatch-container" data-id="1"><div class="stopwatch">00:00:00.000</div></div>
+  <div class="stopwatch-container" data-id="2"><div class="stopwatch">00:00:00.000</div></div>
+  <div class="stopwatch-container" data-id="3"><div class="stopwatch">00:00:00.000</div></div>
+  <div class="stopwatch-container" data-id="4"><div class="stopwatch">00:00:00.000</div></div>
 
   <script>
     class Stopwatch {
       constructor(container) {
         this.container = container;
-        this.display = container.querySelector(".stopwatch");
+        this.display = container.querySelector('.stopwatch');
+        this.id = container.dataset.id;
+        this.elapsed = 0;
         this.startTime = null;
-        this.elapsedMilliseconds = 0;
-        this.isRunning = false;
-        this.animationFrameId = null;
-        this.lastTenMinuteStep = -1;
+        this.running = false;
+        this.frameId = null;
+        this.wakeLock = null;
+        this.lastStep = -1;
         this.swipeStartX = 0;
         this.isSwipe = false;
 
-        this.bindEvents();
+        this.loadState();
         this.updateDisplay();
-      }
 
-      bindEvents() {
-        this.container.addEventListener("click", () => {
+        container.addEventListener('click', (e) => {
           if (!this.isSwipe) this.toggle();
         });
 
-        this.container.addEventListener("touchstart", e => this.startSwipe(e));
-        this.container.addEventListener("touchend", e => this.endSwipe(e));
-        this.container.addEventListener("mousedown", e => this.startSwipe(e));
-        this.container.addEventListener("mouseup", e => this.endSwipe(e));
+        container.addEventListener('touchstart', (e) => this.startSwipe(e.touches[0].clientX));
+        container.addEventListener('touchend', (e) => this.endSwipe(e.changedTouches[0].clientX));
+        container.addEventListener('mousedown', (e) => this.startSwipe(e.clientX));
+        container.addEventListener('mouseup', (e) => this.endSwipe(e.clientX));
       }
 
-      startSwipe(event) {
-        this.isSwipe = false;
-        if (event.type === "touchstart") {
-          this.swipeStartX = event.touches[0].clientX;
-        } else {
-          this.swipeStartX = event.clientX;
-        }
-      }
-
-      endSwipe(event) {
-        let endX = (event.type === "touchend")
-          ? event.changedTouches[0].clientX
-          : event.clientX;
-        const diff = endX - this.swipeStartX;
-
-        if (Math.abs(diff) > 50) {
-          this.isSwipe = true;
-          this.reset();
-        }
-      }
-
-      updateDisplay() {
-        const totalSeconds = Math.floor(this.elapsedMilliseconds / 1000);
-        const milliseconds = Math.floor(this.elapsedMilliseconds % 1000);
-        const hours = Math.floor(totalSeconds / 3600);
-        const minutes = Math.floor((totalSeconds % 3600) / 60);
-        const seconds = totalSeconds % 60;
-
-        this.display.textContent = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(milliseconds).padStart(3, "0")}`;
-
-        if (this.isRunning) {
-          const step = Math.floor(totalSeconds / 600);
-          if (step > this.lastTenMinuteStep) {
-            this.lastTenMinuteStep = step;
-            this.container.classList.add("light-mode");
+      loadState() {
+        const saved = localStorage.getItem(`stopwatch_${this.id}`);
+        if (saved) {
+          const { elapsed, running } = JSON.parse(saved);
+          this.elapsed = elapsed;
+          this.running = running;
+          if (this.running) {
+            this.startTime = performance.now() - this.elapsed;
+            this.update();
+            this.requestWakeLock();
           }
         }
       }
 
-      update() {
-        if (this.isRunning) {
-          const now = performance.now();
-          this.elapsedMilliseconds = now - this.startTime;
-          this.updateDisplay();
-          this.animationFrameId = requestAnimationFrame(() => this.update());
+      saveState() {
+        localStorage.setItem(`stopwatch_${this.id}`, JSON.stringify({
+          elapsed: this.elapsed,
+          running: this.running
+        }));
+      }
+
+      clearState() {
+        localStorage.removeItem(`stopwatch_${this.id}`);
+      }
+
+      async requestWakeLock() {
+        try {
+          if ('wakeLock' in navigator) {
+            this.wakeLock = await navigator.wakeLock.request('screen');
+          }
+        } catch (e) {
+          console.error(e);
         }
       }
 
+      releaseWakeLock() {
+        if (this.wakeLock) {
+          this.wakeLock.release().catch(console.error);
+          this.wakeLock = null;
+        }
+      }
+
+      updateDisplay() {
+        const totalSec = Math.floor(this.elapsed / 1000);
+        const ms = Math.floor(this.elapsed % 1000);
+        const hrs = Math.floor(totalSec / 3600);
+        const mins = Math.floor((totalSec % 3600) / 60);
+        const secs = totalSec % 60;
+
+        this.display.textContent = 
+          `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+
+        if (this.running) {
+          const step = Math.floor(totalSec / 600);
+          if (step > this.lastStep) {
+            this.lastStep = step;
+            this.container.classList.add('light-mode');
+          }
+        }
+      }
+
+      update = () => {
+        if (this.running) {
+          const now = performance.now();
+          this.elapsed = now - this.startTime;
+          this.updateDisplay();
+          this.frameId = requestAnimationFrame(this.update);
+        }
+      };
+
       toggle() {
-        if (this.isRunning) {
-          cancelAnimationFrame(this.animationFrameId);
-          this.isRunning = false;
-          this.container.classList.remove("light-mode");
+        if (this.running) {
+          cancelAnimationFrame(this.frameId);
+          this.running = false;
+          this.saveState();
+          this.releaseWakeLock();
+          this.container.classList.remove('light-mode');
         } else {
-          this.lastTenMinuteStep = Math.floor(this.elapsedMilliseconds / 600000);
-          this.startTime = performance.now() - this.elapsedMilliseconds;
-          this.isRunning = true;
+          this.lastStep = Math.floor(this.elapsed / 600000);
+          this.startTime = performance.now() - this.elapsed;
+          this.running = true;
           this.update();
+          this.requestWakeLock();
         }
       }
 
       reset() {
-        cancelAnimationFrame(this.animationFrameId);
-        this.elapsedMilliseconds = 0;
+        cancelAnimationFrame(this.frameId);
+        this.elapsed = 0;
+        this.running = false;
         this.startTime = null;
-        this.isRunning = false;
-        this.lastTenMinuteStep = -1;
-        this.container.classList.remove("light-mode");
+        this.lastStep = -1;
+        this.releaseWakeLock();
+        this.clearState();
+        this.container.classList.remove('light-mode');
         this.updateDisplay();
+      }
+
+      startSwipe(x) {
+        this.isSwipe = false;
+        this.swipeStartX = x;
+      }
+
+      endSwipe(x) {
+        const dx = x - this.swipeStartX;
+        if (Math.abs(dx) > 50) {
+          this.isSwipe = true;
+          this.reset();
+        }
       }
     }
 
-    const containers = Array.from(document.querySelectorAll(".stopwatch-container"));
-    containers.forEach(container => new Stopwatch(container));
+    // 全部のストップウォッチを初期化
+    document.querySelectorAll('.stopwatch-container').forEach(container => {
+      new Stopwatch(container);
+    });
+
+    // ページ遷移時保存
+    window.addEventListener("beforeunload", () => {
+      document.querySelectorAll('.stopwatch-container').forEach(container => {
+        const id = container.dataset.id;
+        const stopwatch = new Stopwatch(container);
+        stopwatch.saveState();
+      });
+    });
   </script>
 </body>
 </html>
